@@ -1,3 +1,18 @@
+# Team 18 - Garry
+
+ENCS4380 - Interfacing Techniques: Micromouse Project
+
+| Member | Student ID | Role |
+| --- | --- | --- |
+| Yazan Salhi | 1231057 | Electronics lead |
+| Ahmad Hamad | 1230618 | Motion lead |
+| Mohammad Shtayeh | 1231028 | Mechanical lead |
+| Mohammad Samer | 1232550 | Algorithm lead |
+
+[Trello board](https://trello.com/b/sCmID3p7/encs4380-t18-garry)
+
+---
+
 # ENCS4380 Micromouse starter kit (HAL ENCS4380-2026/27-S1)
 
 This kit is the only code you get. You write the maze solver (`solver.c`)
