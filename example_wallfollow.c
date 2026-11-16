@@ -17,9 +17,9 @@ void solver_run(void)
     for (int step = 0; step < 500; step++) {
         uint8_t s = mm_sense();
 
-        if (!(s & MM_SEE_LEFT))       mm_turn(-1);   /* open on the left: go left */
+        if (!(s & MM_SEE_RIGHT))       mm_turn(+1);  /* open on the left: go left */
+        else if (!(s & MM_SEE_LEFT)) mm_turn(-1); 
         else if (!(s & MM_SEE_FRONT)) { /* go straight */ }
-        else if (!(s & MM_SEE_RIGHT)) mm_turn(+1);
         else                          mm_turn(2);    /* dead end */
 
         if (mm_forward(1) != MM_OK) {
