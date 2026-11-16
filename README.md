@@ -6,8 +6,8 @@ ENCS4380 - Interfacing Techniques: Micromouse Project
 | --- | --- | --- |
 | Yazan Salhi | 1231057 | Electronics lead |
 | Ahmad Hamad | 1230618 | Motion lead |
-| Mohammad Shtayeh | 1231028 | Mechanical lead |
-| Mohammad Samer | 1232550 | Algorithm lead |
+| Mohammad Shtayeh | 1231028 | Algorithm lead |
+| Mohammad Samer | 1232550 | Mechanical lead |
 
 [Trello board](https://trello.com/b/sCmID3p7/encs4380-t18-garry)
 
