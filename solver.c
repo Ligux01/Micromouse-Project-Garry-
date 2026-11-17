@@ -10,17 +10,22 @@
  * The same file must build unchanged for the simulator and for the ESP32.
  */
 
-
+#include <stdio.h>
+#include <string.h>
 #include "mouse_hal.h"
 
-static void turn_update_heading(int offset);
+static void turn_update_heading(int);
 static int move_x_y(void);
-static uint8_t decode_sense(uint8_t sense);
-static char* trans_abs_to_chars (uint8_t walls); // translate absolute directions to characters
+static const char* walls_to_text (uint8_t); // translate absolute directions to characters
+static uint8_t decode_and_look(int,int);
+static void record_a_side(int,int,int,int);
+static void printMaze(uint8_t [16][16]);
+static void printDistance(void);
 // N E S W
 const static int x_change[] = {0,1,0,-1};
 const static int y_change[] = {1,0,-1,0};
 static int x = 0 , y = 0, heading = MM_NORTH;
+
 
 static uint8_t walls_arr[MM_MAX_SIZE][MM_MAX_SIZE],
 known_walls[MM_MAX_SIZE][MM_MAX_SIZE]; // uint8_t because we only need 
@@ -33,11 +38,11 @@ void solver_run(void)
 {
     mm_begin("T18");
     
-    
     mm_maze_t maze = mm_maze();
     mm_log("solver started: maze %dx%d", maze.width, maze.height);
     int goal[] = {maze.goal_x0,maze.goal_y0,maze.goal_x1,maze.goal_y1};
     
+
     /* note from claude
     y = height-1    ┌───────────┐
                     │           │      x grows east
@@ -49,6 +54,10 @@ void solver_run(void)
 
         for (int j = 0; j<maze.height;j++){
 
+            if((i >= goal[0] && i <= goal[2]) && (j >= goal[1] && j <= goal[3]))
+            distance[i][j] = 0;
+            else
+            distance[i][j] = -1;
             if  (j == 0){
                 walls_arr[i][j] |= MM_WALL(MM_SOUTH);
                 known_walls[i][j] |= MM_WALL(MM_SOUTH);
@@ -74,24 +83,26 @@ void solver_run(void)
 
       
 
-    mm_mark(x,y,MM_COLOR_GREEN);
+         
     
     // mm_sense returns 3 bits in this order {MM_SEE_RIGHT, MM_SEE_FRONT, MM_SEE_LEFT}
-    mm_log("%s",trans_abs_to_chars(decode_sense(mm_sense())));
+    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
+    mm_mark(x,y,MM_COLOR_GREEN);
+
 
     move_x_y();
-    mm_log("%s",trans_abs_to_chars(decode_sense(mm_sense())));
+    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
     turn_update_heading(1);
 
     move_x_y();
-    mm_log("%s",trans_abs_to_chars(decode_sense(mm_sense())));
+    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
     turn_update_heading(1);
 
     move_x_y();
-    mm_log("%s",trans_abs_to_chars(decode_sense(mm_sense())));
+    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
 
-
-    
+    printMaze(walls_arr);
+    printDistance();
 
     }
 
@@ -110,82 +121,107 @@ static int move_x_y(void){
     return out;
 }
 
-static uint8_t decode_sense (uint8_t sense){
-    uint8_t res = 0;
-    // mm_sense {MM_SEE_RIGHT, MM_SEE_FRONT, MM_SEE_LEFT}
-    // { N , E , S , W}
-    switch (sense){
-    case 0:
-        res = 0;
-        break;
-    case MM_SEE_LEFT:
-        res |= MM_WALL((MM_WEST + heading) % 4);
-        break;
-    case MM_SEE_FRONT:
-        res |= MM_WALL((MM_NORTH + heading) % 4);
-        break;
-    case MM_SEE_FRONT | MM_SEE_LEFT:
-         res |= MM_WALL((MM_WEST + heading) % 4);
-         res |= MM_WALL((MM_NORTH + heading) % 4);
-        break;
-    case MM_SEE_RIGHT:
-        res |= MM_WALL((MM_EAST + heading) % 4);
-        break;
-    case MM_SEE_RIGHT | MM_SEE_LEFT:
-        res |= MM_WALL((MM_WEST + heading) % 4);
-        res |= MM_WALL((MM_EAST + heading) % 4);
-        break;
-    case MM_SEE_RIGHT | MM_SEE_FRONT:
-        res |= MM_WALL((MM_NORTH + heading) % 4);
-        res |= MM_WALL((MM_EAST + heading) % 4);
-        break;
-    case MM_SEE_RIGHT | MM_SEE_FRONT | MM_SEE_LEFT:
-        res |= MM_WALL((MM_NORTH + heading) % 4);
-        res |= MM_WALL((MM_EAST + heading) % 4);
-        res |= MM_WALL((MM_WEST + heading) % 4);
-        break;
-    }
-    return res;
-}
 
-static char* trans_abs_to_chars (uint8_t walls){
+
+static const char* walls_to_text (uint8_t walls){
 
     switch (walls){
         //N E S W
-        case 0:
-            return "";
-        case 1:
-            return "W";
-        case 2:
-            return "S";
-        case 3:
-            return "SW";
-        case 4:
-            return "E";
-        case 5:
-            return "EW";
-        case 6:
-            return "ES";
-        case 7:
-            return "ESW";
-        case 8:
-            return "N";
-        case 9:
-            return "NW";
-        case 10:
-            return "NS";      
-        case 11:
-            return "NSW";  
-        case 12:
-            return "NE";
-        case 13:
-            return "NEW"; 
-        case 14:
-            return "NES"; 
-        case 15:
-            return "NESW";  
+        case 0: return "NON";
+        case 1:  return "W";
+        case 2:  return "S";
+        case 3:  return "SW";
+        case 4:  return "E";
+        case 5:  return "EW";
+        case 6:  return "ES";
+        case 7:  return "ESW";
+        case 8:  return "N";
+        case 9:  return "NW";
+        case 10: return "NS";      
+        case 11: return "NSW";  
+        case 12: return "NE";
+        case 13: return "NEW"; 
+        case 14: return "NES"; 
+        case 15: return "NESW";  
+        default: return "ERR";
         
     }
+}
+static void record_a_side(int dir, int wall,int width,int height){
+    known_walls[x][y] |= MM_WALL(dir);
+    int neighbor_x = x + x_change[dir];
+    int neighbor_y = y + y_change[dir];
+    if((neighbor_x >= 0 && neighbor_x < width) && (neighbor_y >= 0 && neighbor_y < height) )
+    known_walls[neighbor_x][neighbor_y] |= MM_WALL(((dir + 2) % 4)) ;
+
+    if(wall){
+        walls_arr[x][y] |= MM_WALL(dir);
+        if((neighbor_x >= 0 && neighbor_x < width) && (neighbor_y >= 0 && neighbor_y < height) )
+        walls_arr[neighbor_x][neighbor_y] |= MM_WALL(((dir + 2) % 4)) ;
+    }
+}
+
+static uint8_t decode_and_look(int width,int height){
+    uint8_t s = mm_sense();
+    uint8_t res = 0;
+    
+    int front_absolute = (MM_NORTH + heading) % 4;
+    int left_absolute = (MM_WEST + heading) % 4;
+    int right_absolute = (MM_EAST + heading) % 4;
+
+    record_a_side(front_absolute,(s & MM_SEE_FRONT),width,height);
+    record_a_side(left_absolute,(s & MM_SEE_LEFT),width,height);
+    record_a_side(right_absolute,(s & MM_SEE_RIGHT),width,height);
+
+    if(s & MM_SEE_FRONT)
+    res |= MM_WALL(front_absolute); 
+    if(s & MM_SEE_LEFT)
+    res |= MM_WALL(left_absolute);
+    if(s & MM_SEE_RIGHT)
+    res |= MM_WALL(right_absolute);
+    
+    return res;
+
+}
+
+
+// AI Code for Printing
+static void printMaze(uint8_t maze[16][16]) {
+    char rowBuffer[128]; // Buffer to hold one full row of text
+    char cellStr[16];    // Temporary buffer for one cell's number
+
+    for (int r = 15; r >= 0; r--) {
+        rowBuffer[0] = '\0'; // Reset buffer at the start of each row
+        
+        for (int c = 0; c < 16; c++) {
+            // Format each integer into a string with 3 spaces of padding
+            snprintf(cellStr, sizeof(cellStr), "%-4s ", walls_to_text(maze[c][r]));
+            strcat(rowBuffer, cellStr);
+        }
+        
+        // Pass the string using a "%s" placeholder in case mm_log is variadic (like printf)
+        mm_log("%s", rowBuffer); 
+    }
+    mm_log("%s", "------------------------------------------------");
+}
+
+static void printDistance(void){
+    char rowBuffer[255]; // Buffer to hold one full row of text
+    char cellStr[16];    // Temporary buffer for one cell's number
+
+    for (int r = 15; r >= 0; r--) {
+        rowBuffer[0] = '\0'; // Reset buffer at the start of each row
+        
+        for (int c = 0; c < 16; c++) {
+            // Format each integer into a string with 3 spaces of padding
+            snprintf(cellStr, sizeof(cellStr), "%3d ", distance[c][r]);
+            strcat(rowBuffer, cellStr);
+        }
+        
+        // Pass the string using a "%s" placeholder in case mm_log is variadic (like printf)
+        mm_log("%s", rowBuffer); 
+    }
+    mm_log("%s", "------------------------------------------------");
 }
     /* M1 step 1 (week of 25 Oct): map and position
     *   - a wall map for every cell, using MM_WALL(dir) bits
