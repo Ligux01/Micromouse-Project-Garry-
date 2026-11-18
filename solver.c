@@ -14,18 +14,36 @@
 #include <string.h>
 #include "mouse_hal.h"
 
+typedef struct{
+    int x;
+    int y;
+}crd;
+typedef struct {
+    crd arr[MM_MAX_SIZE*MM_MAX_SIZE];
+    int head;
+    int tail;
+    int count;
+} Queue;
+
 static void turn_update_heading(int);
 static int move_x_y(void);
 static const char* walls_to_text (uint8_t); // translate absolute directions to characters
-static uint8_t decode_and_look(int,int);
-static void record_a_side(int,int,int,int);
+static uint8_t decode_and_look(void);
+static void record_a_side(int,int);
 static void printMaze(uint8_t [16][16]);
 static void printDistance(void);
+void initialize(Queue*);
+int isEmpty(Queue*);
+void enqueue(Queue*, int,int);
+crd dequeue(Queue*);
+static void push_neighbors(crd, int);
+
 // N E S W
 const static int x_change[] = {0,1,0,-1};
 const static int y_change[] = {1,0,-1,0};
 static int x = 0 , y = 0, heading = MM_NORTH;
-
+static mm_maze_t maze;
+static Queue crds_queue;
 
 static uint8_t walls_arr[MM_MAX_SIZE][MM_MAX_SIZE],
 known_walls[MM_MAX_SIZE][MM_MAX_SIZE]; // uint8_t because we only need 
@@ -38,10 +56,10 @@ void solver_run(void)
 {
     mm_begin("T18");
     
-    mm_maze_t maze = mm_maze();
-    mm_log("solver started: maze %dx%d", maze.width, maze.height);
+    maze = mm_maze();
+    mm_log("solver started: maze %d x %d", maze.width, maze.height);
     int goal[] = {maze.goal_x0,maze.goal_y0,maze.goal_x1,maze.goal_y1};
-    
+    initialize(&crds_queue);
 
     /* note from claude
     y = height-1    ┌───────────┐
@@ -52,12 +70,16 @@ void solver_run(void)
 
     for (int i = 0; i< maze.width;i++){
 
-        for (int j = 0; j<maze.height;j++){
-
-            if((i >= goal[0] && i <= goal[2]) && (j >= goal[1] && j <= goal[3]))
+        for (int j = 0; j< maze.height;j++){
+            // Filling the distance array
+            if((i >= goal[0] && i <= goal[2]) && (j >= goal[1] && j <= goal[3])){
+            // the goal square distance is 0
             distance[i][j] = 0;
+            enqueue(&crds_queue,i,j);
+            }
             else
-            distance[i][j] = -1;
+            distance[i][j] = -1;    // others are unkown or -1
+
             if  (j == 0){
                 walls_arr[i][j] |= MM_WALL(MM_SOUTH);
                 known_walls[i][j] |= MM_WALL(MM_SOUTH);
@@ -78,28 +100,42 @@ void solver_run(void)
             }
         }
     }
+
+
     mm_log("(0,0): %X\ntop-right corner: %X\ninner cell: %X",
          walls_arr[0][0],walls_arr[maze.width-1][maze.height-1],walls_arr[2][2]);
-
-      
+    
+    
+    while(!isEmpty(&crds_queue)){
+        crd res = dequeue(&crds_queue);
+        
+        push_neighbors(res,MM_NORTH);
+        push_neighbors(res,MM_EAST);
+        push_neighbors(res,MM_WEST);
+        push_neighbors(res,MM_SOUTH);
+    }
 
          
     
     // mm_sense returns 3 bits in this order {MM_SEE_RIGHT, MM_SEE_FRONT, MM_SEE_LEFT}
-    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
+    decode_and_look();
+    mm_log("%s",walls_to_text(walls_arr[x][y]));
     mm_mark(x,y,MM_COLOR_GREEN);
 
 
     move_x_y();
-    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
+    decode_and_look();
+    mm_log("%s",walls_to_text(walls_arr[x][y]));
     turn_update_heading(1);
 
     move_x_y();
-    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
+    decode_and_look();
+    mm_log("%s",walls_to_text(walls_arr[x][y]));
     turn_update_heading(1);
 
     move_x_y();
-    mm_log("%s",walls_to_text(decode_and_look(maze.width,maze.height)));
+    decode_and_look();
+    mm_log("%s",walls_to_text(walls_arr[x][y]));
 
     printMaze(walls_arr);
     printDistance();
@@ -147,21 +183,21 @@ static const char* walls_to_text (uint8_t walls){
         
     }
 }
-static void record_a_side(int dir, int wall,int width,int height){
+static void record_a_side(int dir, int wall){
     known_walls[x][y] |= MM_WALL(dir);
     int neighbor_x = x + x_change[dir];
     int neighbor_y = y + y_change[dir];
-    if((neighbor_x >= 0 && neighbor_x < width) && (neighbor_y >= 0 && neighbor_y < height) )
+    if((neighbor_x >= 0 && neighbor_x < maze.width) && (neighbor_y >= 0 && neighbor_y < maze.height) )
     known_walls[neighbor_x][neighbor_y] |= MM_WALL(((dir + 2) % 4)) ;
 
     if(wall){
         walls_arr[x][y] |= MM_WALL(dir);
-        if((neighbor_x >= 0 && neighbor_x < width) && (neighbor_y >= 0 && neighbor_y < height) )
+        if((neighbor_x >= 0 && neighbor_x < maze.width) && (neighbor_y >= 0 && neighbor_y < maze.height) )
         walls_arr[neighbor_x][neighbor_y] |= MM_WALL(((dir + 2) % 4)) ;
     }
 }
 
-static uint8_t decode_and_look(int width,int height){
+static uint8_t decode_and_look(){
     uint8_t s = mm_sense();
     uint8_t res = 0;
     
@@ -169,9 +205,9 @@ static uint8_t decode_and_look(int width,int height){
     int left_absolute = (MM_WEST + heading) % 4;
     int right_absolute = (MM_EAST + heading) % 4;
 
-    record_a_side(front_absolute,(s & MM_SEE_FRONT),width,height);
-    record_a_side(left_absolute,(s & MM_SEE_LEFT),width,height);
-    record_a_side(right_absolute,(s & MM_SEE_RIGHT),width,height);
+    record_a_side(front_absolute,(s & MM_SEE_FRONT));
+    record_a_side(left_absolute,(s & MM_SEE_LEFT));
+    record_a_side(right_absolute,(s & MM_SEE_RIGHT));
 
     if(s & MM_SEE_FRONT)
     res |= MM_WALL(front_absolute); 
@@ -186,7 +222,7 @@ static uint8_t decode_and_look(int width,int height){
 
 
 // AI Code for Printing
-static void printMaze(uint8_t maze[16][16]) {
+static void printMaze(uint8_t maze_arr[16][16]) {
     char rowBuffer[128]; // Buffer to hold one full row of text
     char cellStr[16];    // Temporary buffer for one cell's number
 
@@ -195,7 +231,7 @@ static void printMaze(uint8_t maze[16][16]) {
         
         for (int c = 0; c < 16; c++) {
             // Format each integer into a string with 3 spaces of padding
-            snprintf(cellStr, sizeof(cellStr), "%-4s ", walls_to_text(maze[c][r]));
+            snprintf(cellStr, sizeof(cellStr), "%-4s ", walls_to_text(maze_arr[c][r]));
             strcat(rowBuffer, cellStr);
         }
         
@@ -214,7 +250,7 @@ static void printDistance(void){
         
         for (int c = 0; c < 16; c++) {
             // Format each integer into a string with 3 spaces of padding
-            snprintf(cellStr, sizeof(cellStr), "%3d ", distance[c][r]);
+            snprintf(cellStr, sizeof(cellStr), "%3d\t", distance[c][r]);
             strcat(rowBuffer, cellStr);
         }
         
@@ -223,6 +259,59 @@ static void printDistance(void){
     }
     mm_log("%s", "------------------------------------------------");
 }
+
+void initialize(Queue *q) {
+    q->head = 0;
+    q->tail = -1;
+    q->count = 0;
+}
+
+int isEmpty(Queue *q) {
+    return q->count == 0;
+}
+
+// Insert an element
+void enqueue(Queue *q, int x,int y) {
+
+    q->tail = (q->tail + 1);
+    q->arr[q->tail].x = x;
+    q->arr[q->tail].y = y;
+    q->count++;
+
+}
+
+// Remove an element
+crd dequeue(Queue *q) {
+    if (isEmpty(q)) {
+        return (crd){-1,-1};
+    }
+
+    crd value;
+    value.x = q->arr[q->head].x;
+    value.y = q->arr[q->head].y;
+
+    q->head = (q->head + 1);
+    q->count--;
+
+    return value;
+}
+
+static void push_neighbors (crd res,int dir){
+
+    int current_cost = distance[res.x][res.y] + 1;
+    crd neighbor = (crd){res.x + x_change[dir],res.y + y_change[dir]};
+        
+
+        if((neighbor.x >= 0 && neighbor.x < maze.width) && 
+        (neighbor.y >= 0 && neighbor.y < maze.height) && 
+        (distance[neighbor.x][neighbor.y] == -1 ) &&
+        !(walls_arr[res.x][res.y] &  MM_WALL(dir))){
+            enqueue(&crds_queue,neighbor.x,neighbor.y);
+            distance[neighbor.x][neighbor.y] = current_cost;
+        }
+    
+}
+
     /* M1 step 1 (week of 25 Oct): map and position
     *   - a wall map for every cell, using MM_WALL(dir) bits
      *   - track x, y and heading after every mm_forward() / mm_turn()
