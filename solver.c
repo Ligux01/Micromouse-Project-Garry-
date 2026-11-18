@@ -37,6 +37,7 @@ int isEmpty(Queue*);
 void enqueue(Queue*, int,int);
 crd dequeue(Queue*);
 static void push_neighbors(crd, int);
+static void flood_fill(int*);
 
 // N E S W
 const static int x_change[] = {0,1,0,-1};
@@ -59,7 +60,7 @@ void solver_run(void)
     maze = mm_maze();
     mm_log("solver started: maze %d x %d", maze.width, maze.height);
     int goal[] = {maze.goal_x0,maze.goal_y0,maze.goal_x1,maze.goal_y1};
-    initialize(&crds_queue);
+    int start[] = {0,0,0,0};
 
     /* note from claude
     y = height-1    ┌───────────┐
@@ -71,14 +72,6 @@ void solver_run(void)
     for (int i = 0; i< maze.width;i++){
 
         for (int j = 0; j< maze.height;j++){
-            // Filling the distance array
-            if((i >= goal[0] && i <= goal[2]) && (j >= goal[1] && j <= goal[3])){
-            // the goal square distance is 0
-            distance[i][j] = 0;
-            enqueue(&crds_queue,i,j);
-            }
-            else
-            distance[i][j] = -1;    // others are unkown or -1
 
             if  (j == 0){
                 walls_arr[i][j] |= MM_WALL(MM_SOUTH);
@@ -101,42 +94,38 @@ void solver_run(void)
         }
     }
 
-
+    flood_fill(goal);
     mm_log("(0,0): %X\ntop-right corner: %X\ninner cell: %X",
          walls_arr[0][0],walls_arr[maze.width-1][maze.height-1],walls_arr[2][2]);
-    
-    
-    while(!isEmpty(&crds_queue)){
-        crd res = dequeue(&crds_queue);
-        
-        push_neighbors(res,MM_NORTH);
-        push_neighbors(res,MM_EAST);
-        push_neighbors(res,MM_WEST);
-        push_neighbors(res,MM_SOUTH);
-    }
 
-         
     
     // mm_sense returns 3 bits in this order {MM_SEE_RIGHT, MM_SEE_FRONT, MM_SEE_LEFT}
     decode_and_look();
     mm_log("%s",walls_to_text(walls_arr[x][y]));
     mm_mark(x,y,MM_COLOR_GREEN);
 
+    
 
     move_x_y();
     decode_and_look();
     mm_log("%s",walls_to_text(walls_arr[x][y]));
     turn_update_heading(1);
 
+    flood_fill(goal);
+
     move_x_y();
     decode_and_look();
     mm_log("%s",walls_to_text(walls_arr[x][y]));
     turn_update_heading(1);
 
+    flood_fill(goal);
+
     move_x_y();
     decode_and_look();
     mm_log("%s",walls_to_text(walls_arr[x][y]));
 
+    flood_fill(goal);
+    
     printMaze(walls_arr);
     printDistance();
 
@@ -312,6 +301,36 @@ static void push_neighbors (crd res,int dir){
     
 }
 
+static void flood_fill(int *target){
+    initialize(&crds_queue);
+
+        for (int i = 0; i< maze.width;i++){
+
+            for (int j = 0; j< maze.height;j++){
+
+                // Filling the distance array
+                if ((i >= target[0] && i <= target[2]) &&
+                (j >= target[1] && j <= target[3])){
+                distance[i][j] = 0; // the goal square distance is 0
+                enqueue(&crds_queue,i,j);
+                }
+                else 
+                distance[i][j] = -1;    // others are unkown or -1
+            }
+            
+        }
+
+    while(!isEmpty(&crds_queue)){
+        crd res = dequeue(&crds_queue);
+        
+        push_neighbors(res,MM_NORTH);
+        push_neighbors(res,MM_EAST);
+        push_neighbors(res,MM_WEST);
+        push_neighbors(res,MM_SOUTH);
+    }
+
+
+}
     /* M1 step 1 (week of 25 Oct): map and position
     *   - a wall map for every cell, using MM_WALL(dir) bits
      *   - track x, y and heading after every mm_forward() / mm_turn()
