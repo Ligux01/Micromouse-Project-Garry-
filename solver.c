@@ -48,7 +48,6 @@ static int to_target_pipeline(int*);
 const static int x_change[] = {0,1,0,-1};
 const static int y_change[] = {1,0,-1,0};
 static int x = 0 , y = 0, heading = MM_NORTH;
-static int new_info;
 static mm_maze_t maze;
 static Queue crds_queue;
 
@@ -102,12 +101,9 @@ void solver_run(void)
 
     // mm_log("(0,0): %X\ntop-right corner: %X\ninner cell: %X", walls_arr[0][0],walls_arr[maze.width-1][maze.height-1],walls_arr[2][2]);
     
-    while(1){
-    new_info = 0;
     to_target_pipeline(goal);
-    if(!new_info) break;
     to_target_pipeline(start);    
-    }
+    to_target_pipeline(goal);
 
     printMaze(walls_arr);
     //printMaze(known_walls);
@@ -157,7 +153,6 @@ static const char* walls_to_text (uint8_t walls){
     }
 }
 static void record_a_side(int dir, int wall){
-    if(!(known_walls[x][y] & MM_WALL(dir))) new_info = 1;
     
     known_walls[x][y] |= MM_WALL(dir);
     int neighbor_x = x + x_change[dir];
