@@ -11,6 +11,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "mouse_hal.h"
 
@@ -27,7 +28,7 @@ typedef struct {
 
 static void turn_update_heading(int);
 static int move_x_y(void);
-static const char* walls_to_text (uint8_t); // translate absolute directions to characters
+static const char* walls_to_text (uint8_t);     // translate absolute directions to characters
 static uint8_t decode_and_look(void);
 static void record_a_side(int,int);
 static void printMaze(uint8_t [16][16]);
@@ -38,11 +39,16 @@ void enqueue(Queue*, int,int);
 crd dequeue(Queue*);
 static void push_neighbors(crd, int);
 static void flood_fill(int*);
+static void turn_to_dir(int);
+static int best_dir(void);
+static int to_target_pipeline(int*);
+
 
 // N E S W
 const static int x_change[] = {0,1,0,-1};
 const static int y_change[] = {1,0,-1,0};
 static int x = 0 , y = 0, heading = MM_NORTH;
+static int new_info;
 static mm_maze_t maze;
 static Queue crds_queue;
 
@@ -94,40 +100,18 @@ void solver_run(void)
         }
     }
 
-    flood_fill(goal);
-    mm_log("(0,0): %X\ntop-right corner: %X\ninner cell: %X",
-         walls_arr[0][0],walls_arr[maze.width-1][maze.height-1],walls_arr[2][2]);
-
+    // mm_log("(0,0): %X\ntop-right corner: %X\ninner cell: %X", walls_arr[0][0],walls_arr[maze.width-1][maze.height-1],walls_arr[2][2]);
     
-    // mm_sense returns 3 bits in this order {MM_SEE_RIGHT, MM_SEE_FRONT, MM_SEE_LEFT}
-    decode_and_look();
-    mm_log("%s",walls_to_text(walls_arr[x][y]));
-    mm_mark(x,y,MM_COLOR_GREEN);
+    while(1){
+    new_info = 0;
+    to_target_pipeline(goal);
+    if(!new_info) break;
+    to_target_pipeline(start);    
+    }
 
-    
-
-    move_x_y();
-    decode_and_look();
-    mm_log("%s",walls_to_text(walls_arr[x][y]));
-    turn_update_heading(1);
-
-    flood_fill(goal);
-
-    move_x_y();
-    decode_and_look();
-    mm_log("%s",walls_to_text(walls_arr[x][y]));
-    turn_update_heading(1);
-
-    flood_fill(goal);
-
-    move_x_y();
-    decode_and_look();
-    mm_log("%s",walls_to_text(walls_arr[x][y]));
-
-    flood_fill(goal);
-    
     printMaze(walls_arr);
-    printDistance();
+    //printMaze(known_walls);
+    //printDistance();
 
     }
 
@@ -137,12 +121,12 @@ static void turn_update_heading(int offset){
 }
 
 static int move_x_y(void){
+    mm_mark(x,y,MM_COLOR_GREEN);
     int out = mm_forward(1);
     if(out == MM_OK){
         x += x_change[heading];
         y += y_change[heading];
     }
-    mm_mark(x,y,MM_COLOR_GREEN);
     return out;
 }
 
@@ -152,27 +136,29 @@ static const char* walls_to_text (uint8_t walls){
 
     switch (walls){
         //N E S W
-        case 0: return "NON";
-        case 1:  return "W";
-        case 2:  return "S";
-        case 3:  return "SW";
-        case 4:  return "E";
-        case 5:  return "EW";
-        case 6:  return "ES";
-        case 7:  return "ESW";
-        case 8:  return "N";
-        case 9:  return "NW";
-        case 10: return "NS";      
-        case 11: return "NSW";  
-        case 12: return "NE";
-        case 13: return "NEW"; 
-        case 14: return "NES"; 
+        case 0: return "-";
+        case 1: return "---W";
+        case 2:  return "--S-";
+        case 3:  return "--SW";
+        case 4:  return "-E--";
+        case 5:  return "-E-W";
+        case 6:  return "-ES-";
+        case 7:  return "-ESW";
+        case 8:  return "N---";
+        case 9:  return "N---W";
+        case 10: return "N-S-";      
+        case 11: return "N-SW";  
+        case 12: return "NE--";
+        case 13: return "NE-W"; 
+        case 14: return "NES-"; 
         case 15: return "NESW";  
         default: return "ERR";
         
     }
 }
 static void record_a_side(int dir, int wall){
+    if(!(known_walls[x][y] & MM_WALL(dir))) new_info = 1;
+    
     known_walls[x][y] |= MM_WALL(dir);
     int neighbor_x = x + x_change[dir];
     int neighbor_y = y + y_change[dir];
@@ -209,18 +195,16 @@ static uint8_t decode_and_look(){
 
 }
 
-
-// AI Code for Printing
 static void printMaze(uint8_t maze_arr[16][16]) {
     char rowBuffer[128]; // Buffer to hold one full row of text
     char cellStr[16];    // Temporary buffer for one cell's number
 
-    for (int r = 15; r >= 0; r--) {
+    for (int r = maze.height-1; r >= 0; r--) {
         rowBuffer[0] = '\0'; // Reset buffer at the start of each row
         
-        for (int c = 0; c < 16; c++) {
+        for (int c = 0; c < maze.width; c++) {
             // Format each integer into a string with 3 spaces of padding
-            snprintf(cellStr, sizeof(cellStr), "%-4s ", walls_to_text(maze_arr[c][r]));
+            snprintf(cellStr, sizeof(cellStr), "%-4s\t", walls_to_text(maze_arr[c][r]));
             strcat(rowBuffer, cellStr);
         }
         
@@ -230,14 +214,15 @@ static void printMaze(uint8_t maze_arr[16][16]) {
     mm_log("%s", "------------------------------------------------");
 }
 
+
 static void printDistance(void){
     char rowBuffer[255]; // Buffer to hold one full row of text
     char cellStr[16];    // Temporary buffer for one cell's number
 
-    for (int r = 15; r >= 0; r--) {
+    for (int r = maze.height-1; r >= 0; r--) {
         rowBuffer[0] = '\0'; // Reset buffer at the start of each row
         
-        for (int c = 0; c < 16; c++) {
+        for (int c = 0; c < maze.width; c++) {
             // Format each integer into a string with 3 spaces of padding
             snprintf(cellStr, sizeof(cellStr), "%3d\t", distance[c][r]);
             strcat(rowBuffer, cellStr);
@@ -321,8 +306,10 @@ static void flood_fill(int *target){
         }
 
     while(!isEmpty(&crds_queue)){
+        char cellStr[16];
         crd res = dequeue(&crds_queue);
-        
+        snprintf(cellStr, sizeof(cellStr), "%1d",distance[res.x][res.y]);
+        mm_label(res.x,res.y,cellStr);
         push_neighbors(res,MM_NORTH);
         push_neighbors(res,MM_EAST);
         push_neighbors(res,MM_WEST);
@@ -331,22 +318,69 @@ static void flood_fill(int *target){
 
 
 }
-    /* M1 step 1 (week of 25 Oct): map and position
-    *   - a wall map for every cell, using MM_WALL(dir) bits
-     *   - track x, y and heading after every mm_forward() / mm_turn()
-     *   - convert mm_sense() (relative) into absolute walls
-     */
-     
+
+static void turn_to_dir(int dir){
+    int turn_amount = (dir - heading + 4) % 4;
+    turn_update_heading(turn_amount);
+}
+
+static int best_dir(void){
+
+    int min_neighbor = 999;
+    int dir = -1; // if it return -1 then nothing is qualified
+    
+    for (int i = 0; i < 4; i++){
+    crd neighbor = (crd){x + x_change[i],y + y_change[i]};
+    if (neighbor.x < 0 || neighbor.x >= maze.width || neighbor.y < 0 || neighbor.y >= maze.height) continue;
+    if (walls_arr[x][y] &  MM_WALL(i)) continue;
+        
+        int d = distance[neighbor.x][neighbor.y];    
+        if(d < 0) continue;
+        if(d < min_neighbor){
+        min_neighbor = d;
+        dir = i;
+        } else if(d == min_neighbor) {
+            if(i == heading) dir = i;
+        }
+    }
+    return dir;
+    }
+
+    
 
 
+static int to_target_pipeline(int *target){
+    uint8_t temp;
+    int next_move;
+    int status;
+    int counter = 0;
+    while (x < target[0] || x > target[2] ||
+       y < target[1] || y > target[3]){
 
-     /* M1 step 2 (week of 1 Nov): flood fill with a queue, show the
-     *   distances with mm_label()
-     */
-     /* M1 step 3 (week of 8 Nov): explore to the goal, return to the
-     *   start, then run the shortest known path
-     */
-     /* M1 step 4 (week of 15 Nov): report your map with mm_map_begin(),
-     *   mm_map_cell() for every cell, mm_map_end()
-     */
+    temp = decode_and_look();
 
+    flood_fill(target);
+
+    // mm_log("current cell walls: %s", walls_to_text(walls_arr[x][y]));
+
+    next_move = best_dir();
+    if (next_move == -1) {
+    mm_log("ERROR: no valid move at (%d,%d)", x, y);
+    return -1;
+    }
+
+    //mm_log("Next Move: %d\nHeading: %d", next_move,heading);
+
+    if(next_move != heading){
+        turn_to_dir(next_move);
+    }
+
+    status = move_x_y();
+    counter++;
+    //mm_log("x: %d | y: %d\nStatus: %d",x,y,status);
+    
+    }
+    mm_log("Length: %d | target: (%d,%d)",counter,target[0],target[1]);
+    decode_and_look();
+    return counter;
+}
