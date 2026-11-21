@@ -1,90 +1,48 @@
-# Team 18 - Garry
+# Garry (Team T18)
 
-ENCS4380 - Interfacing Techniques: Micromouse Project
+ENCS4380 Interfacing Techniques, Birzeit University, first semester 2026/27.
 
-| Member | Student ID | Role |
-| --- | --- | --- |
-| Yazan Salhi | 1231057 | Electronics lead |
-| Ahmad Hamad | 1230618 | Motion lead |
-| Mohammad Shtayeh | 1231028 | Algorithm lead |
-| Mohammad Samer | 1232550 | Mechanical lead |
+Four of us are building a micromouse: a small robot that explores a maze it has never seen, finds the centre, and then races back to it as fast as it can. This repo holds the maze solver and, later, the robot code. Names and roles are in TEAM.md.
 
-[Trello board](https://trello.com/b/sCmID3p7/encs4380-t18-garry)
+The project follows the course milestone plan. M1 is the solver running in the mms simulator, which is what is in `solver.c` now. Next is M2, the 3D-printed chassis. Each milestone gets a git tag (M1, M2, and so on).
 
----
+## How the solver works
 
-# ENCS4380 Micromouse starter kit (HAL ENCS4380-2026/27-S1)
+The mouse keeps two 16x16 arrays of bytes. One records the walls it believes exist, the other records which sides it has actually looked at. Each side of a cell is one bit, set with `MM_WALL(dir)`. A side it has not looked at counts as open when planning, and as unknown when we report the map. Every wall is written on both cells that share it.
 
-This kit is the only code you get. You write the maze solver (`solver.c`)
-and the robot side of the HAL (`esp32/micromouse/hal_esp32.cpp`).
+The hardware layer does not track position, so the solver does. It updates x, y and heading after every move and turn, and converts the sensor's left/front/right reading into compass directions using the heading.
 
-## What is in the kit
+To decide where to go, it floods the maze from a target (the goal block, or the start cell on the way home). That is a breadth-first search with a plain array as the queue, no recursion, so every cell ends up with its distance to the target. Known walls block the spreading. The mouse then steps to the open neighbour with the smallest number, senses the new cell, and floods again, so the route bends around every wall it discovers.
 
-| File | What it is | Edit it? |
-| --- | --- | --- |
-| `mouse_hal.h` | The interface between your solver and the mouse. Read it fully. | No |
-| `mm_internal.h`, `mm_common.c` | Logging and the map dump (shared by simulator and robot) | No |
-| `hal_sim.c`, `main_sim.c` | The HAL for the mms simulator | No |
-| `solver.c` | Your solver (empty template) | **Yes** |
-| `example_wallfollow.c` | How to call the HAL. Not a solution. | No need |
-| `esp32/micromouse/` | Arduino sketch; `hal_esp32.cpp` and `robot_config.h` are yours | **Yes** |
-| `mazes/` | Practice mazes (`.txt`) with their goal (`.goal`) | Add your own |
+Because unseen walls count as open, the flood always gives a best case. We use that to decide when to stop exploring. The mouse repeats the start-to-goal trip until one trip learns no new wall. That trip followed a route no shorter one can beat, so it is the one we keep for the speed run.
 
-The HAL files are replaced by the official copies when your code is graded,
-so changing them never helps.
+At the end of a run the solver reports its whole map with `mm_map_begin`, `mm_map_cell` and `mm_map_end`. Sides it never saw are reported as unknown.
 
-## Run your solver in the mms simulator
+## Build and run in mms
 
-1. Install mms (https://github.com/mackorone/mms/releases) or use the
-   course virtual machine on Moodle.
-2. In mms, press **+** next to *Mouse* and fill in:
-   - **Directory:** this folder
-   - **Build command (Linux/VM):** `gcc -O2 -std=c99 -o solver main_sim.c hal_sim.c mm_common.c solver.c`
-   - **Build command (Windows, MinGW):** same, but `-o solver.exe`
-   - **Run command:** `./solver` (Windows: `solver.exe`)
-3. Load a maze from `mazes/` with the *Maze* button and press **Run**.
+Install mms, add a mouse, and set the directory to this folder.
 
-Your `mm_log()` messages appear in the mms output panel. Never use
-`printf()`: the simulator reads your standard output as commands.
+Windows (MinGW):
 
-If your mms version rejects `moveForward` with a number (old builds), add
-`-DMM_SIM_SINGLE_STEPS` to the build command.
+    gcc -O2 -std=c99 -o solver.exe main_sim.c hal_sim.c mm_common.c solver.c
 
-### Testing a different goal
+For the run command, mms needed the full path to `solver.exe` on our machines. A bare file name did not work.
 
-mms always draws the goal in the centre, but hidden test mazes may put the
-goal elsewhere. Copy the maze's `.goal` file to `mm_goal.txt` in this folder
-(or set the environment variable `MM_GOAL=x0,y0,x1,y1`). `mm_maze()` then
-returns that goal. Delete `mm_goal.txt` to go back to the centre.
+Linux or the course VM:
 
-## The rules of the HAL
+    gcc -O2 -std=c99 -o solver main_sim.c hal_sim.c mm_common.c solver.c
+    ./solver
 
-- `solver.c` includes only `mouse_hal.h` and standard C headers.
-- It calls only `mm_...` functions. No mms `API_...` calls, no Arduino calls.
-- It reads the maze size and goal from `mm_maze()`. Never hard-code 8x8 or
-  the centre.
-- The HAL does not know where the mouse is. Your solver tracks x, y and
-  heading after every `mm_forward()` and `mm_turn()`.
-- `mm_sense()` is **relative** (left, front, right). Converting it into
-  absolute walls (north, east, south, west) is your job.
-- Store walls with `MM_WALL(dir)`. The bit values change every semester;
-  code with hard-coded numbers gives a wrong map dump.
-- After every run, report your map: `mm_map_begin()`, `mm_map_cell()` for
-  every cell, `mm_map_end()`. The dump is checked against the real maze.
-  A wall you report wrongly costs marks; a side you never saw should be
-  reported as unknown (leave it out of `known`).
+Then load a maze from `mazes/` and press Run. Debug output goes through `mm_log`, never `printf`, because the simulator reads stdout as commands.
 
-## Moving to the robot (Phase 3 onward)
+To test a different goal, copy the maze's `.goal` file to `mm_goal.txt` in this folder. Delete the file to go back to the centre.
 
-1. Install the Arduino IDE and the ESP32 board package (Espressif).
-2. Run `make sync` (or copy by hand) to put `mouse_hal.h`, `mm_internal.h`,
-   `mm_common.c` and `solver.c` into `esp32/micromouse/`.
-3. Open `esp32/micromouse/micromouse.ino`.
-4. Fill in `robot_config.h` and write the TODOs in `hal_esp32.cpp`, one
-   milestone at a time (M3 sensors and pins, M4 encoders, M5 straight line,
-   M6 turns, M7 wall sensing and reset).
-5. Your `solver.c` must build here **without any change**. If it needs one,
-   the problem is in your HAL, not in the solver.
+`example_wallfollow.c` is the instructor's wall follower, not ours. Build it in place of `solver.c` if you want to watch it fail on a maze whose goal is not connected to the outer wall.
 
-Keep `MM_RADIOS_ENABLED 0` in `robot_config.h` for every competition run:
-the rules forbid outside signals during a run.
+## What is in the repo
+
+`solver.c` is ours. The files it sits next to come from the starter kit and should not be edited: `mouse_hal.h`, `mm_internal.h`, `mm_common.c`, `hal_sim.c`, `main_sim.c`, `Makefile`. `mazes/` holds the practice mazes plus the one we designed. `esp32/micromouse/` is the robot side and is still mostly empty. `.gitignore` keeps compiled files out of the repo.
+
+## Notes
+
+The debug printers `printMaze` and `printDistance` in `solver.c` came from an AI tool and are labelled as such in the code.

@@ -42,7 +42,7 @@ static void flood_fill(int*);
 static void turn_to_dir(int);
 static int best_dir(void);
 static int to_target_pipeline(int*);
-
+void map_dump(void);
 
 // N E S W
 const static int x_change[] = {0,1,0,-1};
@@ -61,6 +61,7 @@ static int distance[MM_MAX_SIZE][MM_MAX_SIZE]; // -1 means not reached yet
 
 void solver_run(void)
 {
+
     mm_begin("T18");
     
     maze = mm_maze();
@@ -102,6 +103,9 @@ void solver_run(void)
 
     // mm_log("(0,0): %X\ntop-right corner: %X\ninner cell: %X", walls_arr[0][0],walls_arr[maze.width-1][maze.height-1],walls_arr[2][2]);
     
+
+    //Explore and find the shortest path
+    mm_log("Explore: ");
     while(1){
     new_info = 0;
     to_target_pipeline(goal);
@@ -109,7 +113,18 @@ void solver_run(void)
     to_target_pipeline(start);    
     }
 
-    printMaze(walls_arr);
+    // return home
+    mm_log("Return Home: ");
+    to_target_pipeline(start);
+
+    // speed run to the goal
+    mm_log("Speed-Run to The Goal: ");
+    to_target_pipeline(goal);
+
+
+    map_dump();
+
+    //printMaze(walls_arr);
     //printMaze(known_walls);
     //printDistance();
 
@@ -383,4 +398,15 @@ static int to_target_pipeline(int *target){
     mm_log("Length: %d | target: (%d,%d)",counter,target[0],target[1]);
     decode_and_look();
     return counter;
+
+
+}
+void map_dump(void){
+mm_map_begin();
+    for (int i = 0; i< maze.width;i++){
+        for (int j = 0; j< maze.height;j++){
+        mm_map_cell(i,j,walls_arr[i][j],known_walls[i][j]);
+        }
+    }
+    mm_map_end();
 }
